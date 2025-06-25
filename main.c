@@ -73,12 +73,10 @@ void enqueue(Queue *queue, Process *process)
   }
 }
 
-
 void dequeue(Queue *queue)
 {
   if (queue->front == NULL)
   {
-    printf("Queue is empty, nothing to dequeue.\n");
     return;
   }
 
@@ -95,13 +93,43 @@ void dequeue(Queue *queue)
 void dequeue_without_free(Queue *queue) {
     if (queue->front == NULL)
   {
-    printf("Queue is empty, nothing to dequeue.\n");
     return;
   }
 
   queue->front = queue->front->next;
   if(queue->front == NULL) 
     queue->final = NULL;
+}
+
+void print_queue_status(Queue *queue, const char *queue_name) {
+  if (queue->front == NULL) {
+    printf("  %s: vazia\n", queue_name);
+    return;
+  }
+
+  Node *current = queue->front;
+  printf("  %s: ", queue_name);
+  while (current != NULL) {
+    printf("P%d(%d) ", current->process->pid, current->process->execution_time);
+    current = current->next;
+  }
+  printf("\n");
+}
+
+void print_system_status(Queue *high_priority_queue, Queue *low_priority_queue, Queue *io_queue, Process *current_process, int time, int quantum_time) {
+  printf("\n=== TEMPO %d ===\n", time);
+  printf("Status do Sistema:\n");
+  print_queue_status(high_priority_queue, "Fila Alta Prioridade");
+  print_queue_status(low_priority_queue, "Fila Baixa Prioridade");
+  print_queue_status(io_queue, "Fila I/O");
+  
+  if (current_process != NULL) {
+    printf("Processo em Execução: P%d (tempo restante: %d, quantum: %d/%d)\n", 
+           current_process->pid, current_process->execution_time, quantum_time, QUANTUM);
+  } else {
+    printf("Processo em Execução: nenhum\n");
+  }
+  printf("----------------------------------------\n");
 }
 
 void read_file_and_delegate_queue(Queue *high_priority_queue, Queue *low_priority_queue, FILE *file, int current_time)
@@ -119,7 +147,6 @@ void read_file_and_delegate_queue(Queue *high_priority_queue, Queue *low_priorit
 
     if (row[0] == '#' || row[0] == '\n')
     {
-      printf("Linha ignorada: %s", row);
       continue; // skip comments and empty lines
     }
 
@@ -129,7 +156,7 @@ void read_file_and_delegate_queue(Queue *high_priority_queue, Queue *low_priorit
     {
       if (arrival_time == current_time)
       {
-        // Aloca memória para o processo
+        // Reserves memory for the new process
         Process *process = (Process *)malloc(sizeof(Process));
         if (process == NULL)
         {
@@ -137,7 +164,7 @@ void read_file_and_delegate_queue(Queue *high_priority_queue, Queue *low_priorit
           continue;
         }
 
-        // Preenche os dados do processo
+        // Assigns values to the process
         process->pid = pid;
         process->execution_time = execution_time;
         process->priority = priority;
@@ -146,7 +173,7 @@ void read_file_and_delegate_queue(Queue *high_priority_queue, Queue *low_priorit
         process->io = (IOtype)io_type;
         switch(process->io) {
           case NONE:
-            process->io_time = 0; // Nenhum I/O
+            process->io_time = 0; // No I/O
             break;
           case DISCO:
             process->io_time = DISC;
@@ -159,27 +186,27 @@ void read_file_and_delegate_queue(Queue *high_priority_queue, Queue *low_priorit
             break;
         }
 
-        printf("Processo %d criado com tempo de execução %d, I/O %d, dispositivo %d, prioridade %d, tempo de chegada %d\n",
-               pid, execution_time, io_time, io_type, priority, arrival_time);
+        printf(">> Novo processo P%d criado (execução: %d, I/O: %d, prioridade: %d)\n",
+               pid, execution_time, io_type, priority);
 
         if (priority == 1)
         {
-          // Alta prioridade
+          // Hhigher priority
           enqueue(high_priority_queue, process);
-          printf("Processo %d enfileirado na fila de alta prioridade (tempo %d)\n", pid, current_time);
+          printf(">> P%d enfileirado na fila de alta prioridade\n", pid);
         }
         else
         {
-          // Baixa prioridade (prioridade 2 e 3)
+          // lower priority	
           enqueue(low_priority_queue, process);
-          printf("Processo %d enfileirado na fila de baixa prioridade (tempo %d)\n", pid, current_time);
+          printf(">> P%d enfileirado na fila de baixa prioridade\n", pid);
         }
         break;
       
       }
       else
       {
-        // arrival_time diferente: volta o ponteiro e sai
+        // different arrival_time: pointer go bback to the position before reading
         fseek(file, pos, SEEK_SET);
         return;
       }
@@ -191,38 +218,41 @@ void execute_process(Process *process, int *quantum_time)
 {
     process->state = EXECUTANDO;
     process->execution_time--;
-    printf("Executando processo %d por 1 unidade de tempo (tempo restante: %d)\n", process->pid, process->execution_time);
+    printf(">> Executando P%d (tempo restante: %d, quantum: %d/%d)\n", 
+           process->pid, process->execution_time, *quantum_time + 1, QUANTUM);
     (*quantum_time)++;
 }
 
 void end_process(Process *process, Queue *queue) {
-// Processo finalizado
         process->state = FINALIZADO;
-        printf("Processo %d finalizado\n", process->pid);
+        printf(">> P%d FINALIZADO\n", process->pid);
         dequeue(queue);
 }
 
 void realocate_process(Process *process, Queue *high_priority_queue, Queue *low_priority_queue, Queue *io_queue) {
   if (process->io == NONE) {
     if(high_priority_queue->front != NULL && process == high_priority_queue->front->process) {
-      printf("O processo %d foi movido para a fila de baixa prioridadea\n", process->pid);
+      printf(">> P%d movido para fila de baixa prioridade (quantum esgotado)\n", process->pid);
       enqueue(low_priority_queue, process);
       dequeue_without_free(high_priority_queue);
-    } else if(low_priority_queue != NULL && process == low_priority_queue->front->process) {
-      printf("O processo %d foi movido para a fila de alta prioridadea\n", process->pid);
+    } else if(low_priority_queue->front != NULL && process == low_priority_queue->front->process) {
+      printf(">> P%d movido para fila de alta prioridade\n", process->pid);
       enqueue(high_priority_queue, process);
       dequeue_without_free(low_priority_queue);
     }
   } else {
-    printf("O processo %d foi movido para a fila de io para realizar um acesso ao disco \n", process->pid);
+    printf(">> P%d movido para fila de I/O (dispositivo %d)\n", process->pid, process->io);
     enqueue(io_queue, process);
-    dequeue_without_free(process == high_priority_queue->front->process ? high_priority_queue : low_priority_queue);
+    if (high_priority_queue->front != NULL && process == high_priority_queue->front->process) {
+      dequeue_without_free(high_priority_queue);
+    } else if (low_priority_queue->front != NULL && process == low_priority_queue->front->process) {
+      dequeue_without_free(low_priority_queue);
+    }
   }
 }
 
 void execute_io_queue(Queue *high_priority_queue, Queue *low_priority_queue, Queue *io_queue) {
   if (io_queue->front == NULL) {
-    printf("Fila de I/O está vazia, nada para executar.\n");
     return;
   }
 
@@ -230,47 +260,32 @@ void execute_io_queue(Queue *high_priority_queue, Queue *low_priority_queue, Que
   while (current != NULL) {
     Process *process = current->process;
     if (process->io_time > 0) {
-      printf("Processo %d está realizando I/O no dispositivo %d por 1 unidade de tempo (tempo restante: %d)\n", process->pid, process->io, process->io_time);
+      printf(">> P%d realizando I/O no dispositivo %d (tempo restante: %d)\n", 
+             process->pid, process->io, process->io_time);
       process->io_time--;
     } else {
-      printf("Processo %d finalizou o I/O e está pronto para ser reencaminhado.\n", process->pid);
+      printf(">> P%d finalizou I/O e foi reenfileirado\n", process->pid);
       switch(process->io) {
         case DISCO:
-          process->io = NONE; // Resetando o tipo de I/O
-          enqueue(low_priority_queue, process); // Reenfileira na fila correta
+          process->io = NONE;
+          enqueue(low_priority_queue, process);
           break;
         case FITA:
-          process->io = NONE; // Resetando o tipo de I/O
-          enqueue(high_priority_queue, process); // Reenfileira na fila de alta prioridade
+          process->io = NONE;
+          enqueue(high_priority_queue, process);
           break;
         case IMPRESSORA:
-          process->io = NONE; // Resetando o tipo de I/O
-          enqueue(high_priority_queue, process); // Reenfileira na fila de alta prioridade
+          process->io = NONE;
+          enqueue(high_priority_queue, process);
           break;
         default:
-          printf("Processo %d não está realizando I/O.\n", process->pid);
           break;
       }
       
-      dequeue_without_free(io_queue); // Remove o processo da fila de I/O
+      dequeue_without_free(io_queue);
     }
     current = current->next;
   }
-}
-
-void print_queue(Queue *queue) {
-  if (queue->front == NULL) {
-    printf("Fila vazia.\n");
-    return;
-  }
-
-  Node *current = queue->front;
-  printf("Fila: ");
-  while (current != NULL) {
-    printf("%d ", current->process->pid);
-    current = current->next;
-  }
-  printf("\n");
 }
 
 void RoundRobinWithFeedback()
@@ -293,127 +308,67 @@ void RoundRobinWithFeedback()
 
   while (time < 60)
   {
-    printf("\n--- Tempo %d ---\n", time);
+    print_system_status(&high_priority_queue, &low_priority_queue, &io_queue, current_process, time, quantum_time);
+    
     read_file_and_delegate_queue(&high_priority_queue, &low_priority_queue, file, time);
 
     if (current_process == NULL) {
-      printf("pegando novo processo");
       if(high_priority_queue.front != NULL) {
-        printf("pegando processo da fila de alta prioridade\n");
-        print_queue(&high_priority_queue);
         current_process = high_priority_queue.front->process;
         current_queue = &high_priority_queue;
+        printf(">> Selecionando P%d da fila de alta prioridade\n", current_process->pid);
       } else if(low_priority_queue.front != NULL) {
-        printf("pegando processo da fila de baixa prioridade\n");
-        print_queue(&low_priority_queue);
         current_process = low_priority_queue.front->process;
         current_queue = &low_priority_queue;
+        printf(">> Selecionando P%d da fila de baixa prioridade\n", current_process->pid);
       } else {
-        printf("Nenhum processo disponível para executar\n");
+        printf(">> Nenhum processo disponível para executar\n");
         current_process = NULL;
         current_queue = NULL;
       }
     }
 
     if(current_process != NULL) {
-      // Simula a execução do processo
       execute_process(current_process, &quantum_time);
       
       if (current_process->execution_time <= 0)
       {
         end_process(current_process, current_queue);
-        quantum_time = 0; // Reseta o quantum
-        current_process = NULL; current_queue = NULL;
+        quantum_time = 0;
+        current_process = NULL; 
+        current_queue = NULL;
       } else if (current_process->io != NONE) {
-        // Se o processo precisa de I/O, realoca para a fila de I/O
-        printf("Processo %d requer I/O, movendo para a fila de I/O\n", current_process->pid);
         realocate_process(current_process, &high_priority_queue, &low_priority_queue, &io_queue);
-        quantum_time = 0; // Reseta o quantum
-        current_process = NULL; current_queue = NULL;
-      }else if (quantum_time >= QUANTUM)
+        quantum_time = 0;
+        current_process = NULL; 
+        current_queue = NULL;
+      } else if (quantum_time >= QUANTUM)
       {
-        // Se o quantum for atingido, move o processo para a fila de baixa prioridade
-        printf("Quantum de %d atingido\n", QUANTUM);
+        printf(">> Quantum de %d atingido\n", QUANTUM);
         realocate_process(current_process, &high_priority_queue, &low_priority_queue, &io_queue);
-        quantum_time = 0; // Reseta o quantum
-        current_process = NULL; current_queue = NULL;
+        quantum_time = 0;
+        current_process = NULL; 
+        current_queue = NULL;
       }
     }
 
-
-    /*     if (high_priority_queue.front != NULL)
-    {
-      // Executa processo da fila de alta prioridade
-      current_process = high_priority_queue.front->process;
-      printf("Executando processo %d da fila de alta prioridade\n", current_process->pid);
-
-      // Simula a execução do processo
-      execute_process(current_process, &quantum_time);
-
-      if (current_process->execution_time <= 0)
-      {
-        end_process(current_process, &high_priority_queue);
-        free(current_process);
-        quantum_time = 0; // Reseta o quantum
-      }
-      if(current_process->io != NONE) {
-        // Se o processo precisa de I/O, realoca para a fila de I/O
-        printf("Processo %d requer I/O, movendo para a fila de I/O\n", current_process->pid);
-        realocate_process(current_process, &high_priority_queue, &low_priority_queue, &io_queue);
-        quantum_time = 0; // Reseta o quantum
-      }
-      if (quantum_time >= QUANTUM)
-      {
-        // Se o quantum for atingido, move o processo para a fila de baixa prioridade
-        printf("Quantum de %d atingido\n", QUANTUM);
-        realocate_process(current_process, &high_priority_queue, &low_priority_queue, &io_queue);
-        quantum_time = 0; // Reseta o quantum
-      }
-    }
-    else if (low_priority_queue.front != NULL)
-    {
-      // Executa processo da fila de baixa prioridade
-      current_process = low_priority_queue.front->process;
-      printf("Executando processo %d da fila de baixa prioridade\n", current_process->pid);
-
-      
-      // Simula a execução do processo
-      execute_process(current_process, &quantum_time);
-
-      if (current_process->execution_time <= 0)
-      {
-        end_process(current_process, &low_priority_queue);
-        free(current_process);
-        quantum_time = 0; // Reseta o quantum
-      }
-      if(current_process->io != NONE) {
-        // Se o processo precisa de I/O, realoca para a fila de I/O
-        printf("Processo %d requer I/O, movendo para a fila de I/O\n", current_process->pid);
-        realocate_process(current_process, &high_priority_queue, &low_priority_queue, &io_queue);
-        quantum_time = 0; // Reseta o quantum
-      }
-      if (quantum_time >= QUANTUM)
-      {
-        // Se o quantum for atingido, move o processo para a fila de baixa prioridade
-        printf("Quantum de %d atingido, movendo processo %d para a fila de baixa prioridade\n", QUANTUM, current_process->pid);
-        enqueue(&high_priority_queue, current_process);
-        high_priority_queue.front = high_priority_queue.front->next;
-        if (high_priority_queue.front == NULL)
-          high_priority_queue.final = NULL;
-        quantum_time = 0; // Reseta o quantum
-      }
-    } */
-    else
-    {
-      printf("Nenhum processo para executar no momento.\n");
-    }
     execute_io_queue(&high_priority_queue, &low_priority_queue, &io_queue);
     time++;
   }
+  
+  fclose(file);
 }
 
 int main()
 {
+  printf("=== SIMULADOR DE ESCALONAMENTO ROUND ROBIN COM FEEDBACK ===\n");
+  printf("Quantum: %d unidades de tempo\n", QUANTUM);
+  printf("Dispositivos I/O: Disco(%d), Fita(%d), Impressora(%d)\n", DISC, TAPE, PRINTER);
+  printf("========================================================\n");
+  
   RoundRobinWithFeedback();
+  
+  printf("\n=== SIMULAÇÃO FINALIZADA ===\n");
   return 0;
 }
+
