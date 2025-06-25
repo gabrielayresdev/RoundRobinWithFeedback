@@ -1,11 +1,11 @@
 # Simulador de Processos - Dados de Entrada
-# Formato: nome pid execution_time io_time io_device priority arrival_time state io
+# Formato: nome pid execution_time priority arrival_time state io
 # Estados: 0=PRONTO, 1=EXECUTANDO, 2=FINALIZADO
 # I/O: 0=NONE, 1=DISCO, 2=FITA, 3=IMPRESSORA
-# Prioridades: 1=Alta, 2=Media, 3=Baixa
+# Prioridades: 1=Alta, 2=baixa
 
-Processo1 1 8 2 1 3 0 0 2
-Processo2 2 6 3 3 2 1 0 3
-Processo3 3 12 1 2 1 2 0 1
-Processo4 4 10 2 2 3 4 0 1
-Processo5 5 15 1 1 1 7 0 2
+Processo1 1 8 2 0 0 0
+Processo2 2 6 1 1 0 1
+Processo3 3 12 2 2 0 0
+Processo4 4 10 1 4 0 2
+Processo5 5 15 1 7 0 3
